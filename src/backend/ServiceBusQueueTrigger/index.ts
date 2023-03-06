@@ -1,7 +1,7 @@
 import { AzureFunction, Context } from "@azure/functions"
 import { ServiceBusMQ } from "../services/messageQueue";
 import { CosmosDB } from "../services/db"
-import { mqTrigger } from "../services/commonTrigger";
+import { mqTrigger } from "../engine/commonTrigger";
 
 const serviceBusQueue: AzureFunction = async function (context: Context, mySbMsg: any): Promise<void> {
     const mq = new ServiceBusMQ()
@@ -13,6 +13,7 @@ const serviceBusQueue: AzureFunction = async function (context: Context, mySbMsg
         //db.deleteByID(mySbMsg.dbId)
     }
     
+    context.log("Entering mqTrigger")
     await mqTrigger(context, mySbMsg, mq, db)
 };
 

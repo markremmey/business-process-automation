@@ -18,6 +18,7 @@ import VideoIndexerDialog from '../Components/Dialogs/VideoIndexerDialog';
 import ToTxtDialog from '../Components/Dialogs/ToTxtDialog';
 import Prices from '../Components/Prices/Prices'
 import OpenAiGenericDialog from '../Components/Dialogs/OpenAiGenericDialog';
+import SpliceDocument from '../Components/Dialogs/SpliceDocument';
 
 import { sc } from '../Components/serviceCatalog'
 import { Button, Text } from '@fluentui/react-northstar'
@@ -41,6 +42,7 @@ export default function Stages(props) {
     const [hideSttDialog, setHideSttDialog] = useState(true)
     const [hideOpenAiDialog, setHideOpenAiDialog] = useState(true)
     const [hideVideoIndexerDialog, setHideVideoIndexerDialog] = useState(true)
+    const [hideSpliceDocumentDialog, setHideSpliceDocumentDialog] = useState(true)
     const [currentOption, setCurrentOption] = useState(null)
     //const [price, setPrice] = useState(0)
     // const [numDocuments, setNumDocuments] = useState(0)
@@ -86,6 +88,7 @@ export default function Stages(props) {
             for (const p of currentPipelines.data.pipelines) {
                 if (p.name === props.selectedPipelineName) {
                     p.stages = stages.slice(1, stages.length)
+                    p.firstStage = stages[0]
                     break;
                 }
             }
@@ -153,22 +156,22 @@ export default function Stages(props) {
         } else if (event.name === 'changeOutput') {
             setCurrentOption(_.cloneDeep(event))
             setHideChangeDataDialog(false)
-        } else if (event.name === 'stt') {
+        } else if (event.name === 'stt' || event.name === 'sttBatch') {
             setCurrentOption(_.cloneDeep(event))
             setHideSttDialog(false)
         } else if (event.name === 'huggingFaceNER') {
             setCurrentOption(_.cloneDeep(event))
             setHideHuggingFaceDialog(false)
-        } else if (event.name === 'customFormRec') {
+        } else if (event.name === 'customFormRec' || event.name === 'customFormRecBatch') {
             setCurrentOption(_.cloneDeep(event))
             setHideFormRecDialog(false)
-        } else if (event.name === 'recognizeCustomEntities') {
+        } else if (event.name === 'recognizeCustomEntities' || event.name === 'recognizeCustomEntitiesBatch') {
             setCurrentOption(_.cloneDeep(event))
             setHideCustomNerDialog(false)
-        } else if (event.name === 'singleCategoryClassify') {
+        } else if (event.name === 'singleCategoryClassify' || event.name === 'singleCategoryClassifyBatch') {
             setCurrentOption(_.cloneDeep(event))
             setHideCustomSingleDialog(false)
-        } else if (event.name === 'multiCategoryClassify') {
+        } else if (event.name === 'multiCategoryClassify' || event.name === 'multipleCategoryClassifyBatch') {
             setCurrentOption(_.cloneDeep(event))
             setHideCustomMultiDialog(false)
         } else if (event.name === 'videoIndexer') {
@@ -177,6 +180,9 @@ export default function Stages(props) {
         } else if (event.name === 'openaiGeneric') {
             setCurrentOption(_.cloneDeep(event))
             setHideOpenAiDialog(false)
+        }else if (event.name === 'spliceDocument') {
+            setCurrentOption(_.cloneDeep(event))
+            setHideSpliceDocumentDialog(false)
         }else {
             addItemToPipeline(event)
         }
@@ -219,6 +225,7 @@ export default function Stages(props) {
                 <ToTxtDialog hideDialog={hideToTxtDialog} setHideDialog={setHideToTxtDialog} currentOption={currentOption} addItemToPipeline={addItemToPipeline} />
                 <VideoIndexerDialog hideDialog={hideVideoIndexerDialog} setHideDialog={setHideVideoIndexerDialog} currentOption={currentOption} addItemToPipeline={addItemToPipeline} />
                 <OpenAiGenericDialog hideDialog={hideOpenAiDialog} setHideDialog={setHideOpenAiDialog} currentOption={currentOption} addItemToPipeline={addItemToPipeline} />
+                <SpliceDocument hideDialog={hideSpliceDocumentDialog} setHideDialog={setHideSpliceDocumentDialog} currentOption={currentOption} addItemToPipeline={addItemToPipeline} />
                 {renderOptions(options)}
             </>
         )

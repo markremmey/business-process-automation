@@ -1,6 +1,8 @@
 import { CosmosClient } from "@azure/cosmos"
 import { MongoClient } from 'mongodb'
 import { BpaPipelines, BpaServiceObject } from "../engine/types"
+import { v4 as uuidv4 } from 'uuid';
+const redis = require("redis")
 
 export abstract class DB {
 
@@ -17,10 +19,64 @@ export abstract class DB {
     }
 
     public abstract create(data) : Promise<any>;
-    public abstract view(input : BpaServiceObject) : Promise<BpaServiceObject>
+    public abstract view(input : BpaServiceObject) : Promise<any>
     public abstract getConfig() : Promise<BpaPipelines>
     public abstract getByID (id : string) : Promise<any>
     public abstract deleteByID (id : string) : Promise<any>
+}
+
+export class Redis extends DB {
+
+    private _client
+
+    constructor(connectionString : string, dbName : string, containerName : string){
+        super(connectionString, dbName, containerName)
+        const options = {
+            url : connectionString, 
+            password : dbName,
+        }
+        this._client = redis.createClient(options)
+    }
+
+    public connect = async () => {
+        await this._client.connect()
+    }
+
+    public create = async (data: any): Promise<any> => {
+        const out = await this._client.set(uuidv4(),data)
+
+        return 
+    }
+    public view = async (input: BpaServiceObject): Promise<BpaServiceObject> => {
+        await this.create(input)
+        return input
+    }
+    public getConfig = async (): Promise<BpaPipelines> => {
+        try{
+            const out = await this._client.get(this._pipelinesLabel)
+
+            return out
+        } catch(err){
+            console.log(err)
+        }
+        return null
+    }
+    public getByID = async (id: string): Promise<any> => {
+        try{
+            const out = await this._client.get(id)
+
+            return out
+        } catch(err){
+            console.log(err)
+        }
+        return null
+    }
+    public deleteByID = async (id: string): Promise<any> => {
+        const out = await this._client.set(id, null)
+
+        return out
+    }
+    
 }
 
 export class MongoDB extends DB {
@@ -99,9 +155,10 @@ export class CosmosDB extends DB {
         return null
     }
 
-    public view = async (input : BpaServiceObject) : Promise<BpaServiceObject> => {
-        await this.create(input)
-        return input
+    public view = async (input : BpaServiceObject) : Promise<any> => {
+        const newItem = await this.create(input)
+        
+        return newItem
     }
     
     public getConfig = async () : Promise<BpaPipelines> => {

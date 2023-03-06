@@ -22,6 +22,8 @@ export default function Search(props) {
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false)
   const [answers, setAnswers] = useState([])
+  const [openAiAnswer, setOpenAiAnswer] = useState("")
+  //const [openAiSummary, setOpenAiSummary] = useState("")
 
   let resultsPerPage = top;
 
@@ -50,6 +52,31 @@ export default function Search(props) {
     return result
   }
 
+  const getText = (searchables, data) => {
+    try {
+      if (!searchables || searchables.length === 0) {
+        return ""
+      }
+      let out = ""
+
+      for (const s of searchables) {
+        let currentData = data
+        for (const i of s.split('/')) {
+          if (Array.isArray(currentData[i])) {
+            currentData = currentData[i][0]
+          } else {
+            currentData = currentData[i]
+          }
+        }
+        out += currentData
+      }
+      return out
+    } catch (err) {
+      console.log(err)
+    }
+
+  }
+
   useEffect(() => {
 
     setIsLoading(true);
@@ -72,6 +99,19 @@ export default function Search(props) {
         .then(response => {
           //console.log(JSON.stringify(response.data))
           if (response?.data?.results?.value) {
+            if (skip === 0 && props.useOpenAiAnswer && response.data.results.value.length > 0 && q.length > 1) {
+              const searchableText = getText(props.index.searchableFields, response.data.results.value[0])
+              if (searchableText) {
+                axios.post(`/api/openaianswer`, {
+                  q: q,
+                  text: searchableText
+                }).then(r => {
+                  setOpenAiAnswer(r.data.out.text)
+                }).catch(e => {
+                  console.log(e)
+                })
+              }
+            }
             setResults(response.data.results.value);
             if (response.data.results.value.length > 0 && response.data.results.value[0]?.type && response.data.results.value[0].type === 'table') {
               props.onSetTableAvailable(true)
@@ -150,7 +190,7 @@ export default function Search(props) {
   else {
     body = (
       <div className="col-md-9">
-        <Results useTableSearch={props.useTableSearch} tableSearchConfig={props.tableSearchConfig} filterCollections={props.index.collections} answers={answers} facets={facets} searchables={props.index.searchableFields} documents={results} top={top} skip={skip} count={resultCount}></Results>
+        <Results openAiAnswer={openAiAnswer} useTableSearch={props.useTableSearch} useOpenAiAnswer={props.useOpenAiAnswer} tableSearchConfig={props.tableSearchConfig} filterCollections={props.index.collections} answers={answers} facets={facets} searchables={props.index.searchableFields} documents={results} top={top} skip={skip} count={resultCount}></Results>
         <Pager className="pager-style" currentPage={currentPage} resultCount={resultCount} resultsPerPage={resultsPerPage} setCurrentPage={updatePagination}></Pager>
       </div>
     )
