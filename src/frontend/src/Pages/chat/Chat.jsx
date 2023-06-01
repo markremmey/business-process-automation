@@ -23,11 +23,14 @@ import axios from 'axios'
 //     ReadDecomposeAsk = "rda"
 // }
 
-const Chat = () => {
+const EnterpriseSearch = () => {
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
     const [promptTemplate, setPromptTemplate] = useState("");
+    const [facetTemplate, setFacetTemplate] = useState("If the question is asking about 'sentiment' regarding the sources and other documents in the database, use the 'Facets' field to answer the question.");
+    const [facetQueryTermsTemplate, setFacetQueryTermsTemplate] = useState("When generating the Search Query do not use terms related to sentiment.  Example ['sentiment', 'positive', 'negative',etc]");
     const [retrieveCount, setRetrieveCount] = useState(3);
     const [useSemanticRanker, setUseSemanticRanker] = useState(true);
+    const [vectorSearchPipeline, setVectorSearchPipeline] = useState("");
     const [useSemanticCaptions, setUseSemanticCaptions] = useState(false);
     const [excludeCategory, setExcludeCategory] = useState("");
     const [useSuggestFollowupQuestions, setUseSuggestFollowupQuestions] = useState(false);
@@ -47,27 +50,40 @@ const Chat = () => {
     const [indexes, setIndexes] = useState([])
     const [selectedIndex, setSelectedIndex] = useState(null)
     //const [indexSearchDone, setIndexSearchDone] = useState(false)
+    const [pipelines, setPipelines] = useState([])
 
-    useEffect(()=>{
+    useEffect(() => {
         axios.get('/api/indexes').then(_indexes => {
-            if(_indexes?.data?.indexes){
+            if (_indexes?.data?.indexes) {
                 //setIndexSearchDone(true)
                 setIndexes(_indexes.data.indexes)
-                setSelectedIndex(_indexes.data.indexes[0]) 
+                setSelectedIndex(_indexes.data.indexes[0])
             }
         }).catch(err => {
             //setIndexSearchDone(true)
             console.log(err)
         })
-    },[])
+        axios.get('/api/config?id=pipelines').then(value => {
+            setPipelines(value.data.pipelines.filter(value => {
+                for (const stage of value.stages) {
+                    if (stage.name === 'openaiEmbeddings') {
+                        return true
+                    }
+                }
+                return false
+            }))
+        }).catch(err => {
+            console.log(err)
+        })
+    }, [])
 
 
     const onIndexChange = (_, value) => {
-        if(indexes && indexes.length > 0){
+        if (indexes && indexes.length > 0) {
             const _index = indexes.find(i => i.name === value.value)
             setSelectedIndex(_index)
         }
-        
+
     }
 
     const makeApiRequest = (question => {
@@ -88,10 +104,13 @@ const Chat = () => {
                     excludeCategory: excludeCategory.length === 0 ? undefined : excludeCategory,
                     top: retrieveCount,
                     semanticRanker: useSemanticRanker,
+                    vectorSearchPipeline: vectorSearchPipeline,
                     semanticCaptions: useSemanticCaptions,
-                    suggestFollowupQuestions: useSuggestFollowupQuestions
+                    suggestFollowupQuestions: useSuggestFollowupQuestions,
+                    facetQueryTermsTemplate: facetQueryTermsTemplate,
+                    facetTemplate : facetTemplate
                 },
-                index : selectedIndex
+                index: selectedIndex
             };
             chatApi(request).then(result => {
                 setAnswers([...answers, [question, result]]);
@@ -117,6 +136,14 @@ const Chat = () => {
 
     const onPromptTemplateChange = (_ev, newValue) => {
         setPromptTemplate(newValue || "");
+    };
+
+    const onFacetTemplateChange = (_ev, newValue) => {
+        setFacetTemplate(newValue || "");
+    };
+
+    const onFacetQueryTermsTemplateChange = (_ev, newValue) => {
+        setFacetQueryTermsTemplate(newValue || "");
     };
 
     const onRetrieveCountChange = (_ev, newValue) => {
@@ -164,20 +191,33 @@ const Chat = () => {
         setSelectedAnswer(index);
     };
 
+    const onVectorSearchPipeline = (_ev, newValue) => {
+        setVectorSearchPipeline(newValue.value)
+    }
+
     return (
         <div className={styles.container}>
 
             <div className={styles.commandsContainer}>
                 <ClearChatButton className={styles.commandButton} onClick={clearChat} disabled={!lastQuestionRef.current || isLoading} />
                 <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} />
-                <div>
+                <div style={{ marginRight: "10px" }}>
                     <Dropdown
                         search
-                        placeholder="Select the Index"
+                        placeholder="Select the Cognitive Search Index"
                         label="Output"
                         items={indexes.map(sc => sc.name)}
                         onChange={onIndexChange}
 
+                    />
+                </div>
+                <div>
+                    <Dropdown
+                        search
+                        placeholder="Select the Vector Embedding Index"
+                        label="Output"
+                        items={pipelines.map(sc => sc.name)}
+                        onChange={onVectorSearchPipeline}
                     />
                 </div>
 
@@ -234,7 +274,7 @@ const Chat = () => {
                     <div className={styles.chatInput}>
                         <QuestionInput
                             clearOnSend
-                            placeholder="Type a new question (e.g. does my plan cover annual eye exams?)"
+                            placeholder="Type a new question"
                             disabled={isLoading}
                             onSend={question => makeApiRequest(question)}
                         />
@@ -270,6 +310,24 @@ const Chat = () => {
                         onChange={onPromptTemplateChange}
                     />
 
+                    <TextField
+                        className={styles.chatSettingsSeparator}
+                        defaultValue={facetTemplate}
+                        label="Facet Template"
+                        multiline
+                        autoAdjustHeight
+                        onChange={onFacetTemplateChange}
+                    />
+
+                    <TextField
+                        className={styles.chatSettingsSeparator}
+                        defaultValue={facetQueryTermsTemplate}
+                        label="Facet Query Terms Template"
+                        multiline
+                        autoAdjustHeight
+                        onChange={onFacetQueryTermsTemplateChange}
+                    />
+
                     <SpinButton
                         className={styles.chatSettingsSeparator}
                         label="Retrieve this many documents from search:"
@@ -298,10 +356,11 @@ const Chat = () => {
                         label="Suggest follow-up questions"
                         onChange={onUseSuggestFollowupQuestionsChange}
                     />
+                    {/* <TextField className={styles.chatSettingsSeparator} label="Vector Search Index" onChange={onVectorSearchPipeline} /> */}
                 </Panel>
             </div>
         </div>
     );
 };
 
-export default Chat;
+export default EnterpriseSearch;

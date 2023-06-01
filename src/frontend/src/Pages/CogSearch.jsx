@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { Text, Dropdown } from '@fluentui/react-northstar';
 import { JSONTree } from 'react-json-tree';
 
-export default function OpenAiViewer(props) {
+export default function CogSearch(props) {
 
     const [pipelines, setPipelines] = useState([])
     const [selectedPipeline, setSelectedPipeline] = useState({ name: "no pipeline selected" })
@@ -123,7 +123,7 @@ export default function OpenAiViewer(props) {
                         {(docData?.aggregatedResults?.ocrToText) ? docData.aggregatedResults.ocrToText.slice(0,700)+"..." : ""}
                         {(docData?.aggregatedResults?.sttToText) ? docData.aggregatedResults.sttToText.slice(0,700)+"..." : ""}
                         <div style={{marginTop:"20px", fontWeight : "bold"}}>
-                            {(docData?.aggregatedResults?.openaiGeneric) ? docData.aggregatedResults.openaiGeneric.map(v => v.choices[0].text) : ""}
+                            {(docData?.aggregatedResults?.openaiGeneric?.choices[0].text) ? docData.aggregatedResults.openaiGeneric.choices[0].text : ""}
                         </div>
                         <div style={{marginTop:"20px", fontWeight : "bold"}}>
                             {(docData?.aggregatedResults?.openaiSummarize?.choices[0].text) ? docData.aggregatedResults.openaiSummarize.choices[0].text : ""}
