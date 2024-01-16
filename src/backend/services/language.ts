@@ -1,9 +1,19 @@
-import { AnalyzeBatchAction, AnalyzeBatchPoller, AzureKeyCredential, BeginAnalyzeBatchOptions, PagedAnalyzeBatchResult, TextAnalysisClient } from "@azure/ai-text-analytics";
+import { AnalyzeBatchAction, AnalyzeBatchPoller, AzureKeyCredential, PagedAnalyzeBatchResult, TextAnalysisClient } from "@azure/ai-text-analytics";
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import { BpaServiceObject } from "../engine/types";
 import { DB } from "./db";
 import MessageQueue from "./messageQueue";
 import { AnalyzeActionNames } from "@azure/ai-text-analytics";
+
+interface Message {
+    Id: string,
+    ReferenceId: string,
+    Value: string,
+    UserId: string,
+    EventType: string,
+    CustomProperties: string,
+    EventTime: string
+}
 
 export class LanguageStudio {
 
@@ -19,6 +29,36 @@ export class LanguageStudio {
 
     private _analyze = async (client: TextAnalysisClient, documents, actions: AnalyzeBatchAction[]): Promise<AnalyzeBatchPoller> => {
         return await client.beginAnalyzeBatch(actions, documents, this._language)
+    }
+
+    private _recognizeMultiNoReturn = async (input: BpaServiceObject, actions: AnalyzeBatchAction[], type: string, label: string, analyzeType: boolean, index: number): Promise<any[]> => {
+        const client = new TextAnalysisClient(this._endpoint, new AzureKeyCredential(this._apikey));
+        let poller: AnalyzeBatchPoller
+        if (input.data.length === 0) {
+            input.data = "no data"
+        }
+
+        poller = await this._analyze(client, input.data, actions);
+
+        poller.onProgress(() => {
+            console.log(
+                `Number of actions still in progress: ${poller.getOperationState().actionInProgressCount}`
+            );
+        });
+
+        console.log(`The analyze actions operation created on ${poller.getOperationState().createdOn}`);
+
+        console.log(
+            `The analyze actions operation results will expire on ${poller.getOperationState().expiresOn}`
+        );
+
+        const resultPages: PagedAnalyzeBatchResult = await poller.pollUntilDone();
+
+        let out = []
+        for await (const page of resultPages) {
+            out.push(page)
+        }
+        return out;
     }
 
     private _recognize = async (input: BpaServiceObject, actions: AnalyzeBatchAction[], type: string, label: string, analyzeType: boolean, index: number): Promise<BpaServiceObject> => {
@@ -60,14 +100,98 @@ export class LanguageStudio {
             pipeline: input.pipeline,
             aggregatedResults: results,
             resultsIndexes: input.resultsIndexes,
-            id: input.id
+            id: input.id,
+            vector: input.vector
         }
         return result
     }
 
+    private _recognizeMultiAsync = async (input: BpaServiceObject, actions: AnalyzeBatchAction[], type: string, label: string, analyzeType: boolean, index: number): Promise<BpaServiceObject> => {
+        const client = new TextAnalysisClient(this._endpoint, new AzureKeyCredential(this._apikey));
+        let poller: AnalyzeBatchPoller
+        if (input.data.length === 0) {
+            input.data = "no data"
+        }
+
+        poller = await this._analyze(client, input.data, actions);
+
+        input.aggregatedResults[label] = {
+            location: JSON.parse(poller.toString()).state.initialRawResponse.headers["operation-location"],
+            filename: input.filename
+        }
+
+        return {
+            index: index,
+            type: "async transaction",
+            label: label,
+            filename: input.filename,
+            pipeline: input.pipeline,
+            bpaId: input.bpaId,
+            aggregatedResults: input.aggregatedResults,
+            resultsIndexes: input.resultsIndexes,
+            id: input.id,
+            vector: input.vector
+        }
+    }
+
+    private _recognizeMulti = async (input: BpaServiceObject, actions: AnalyzeBatchAction[], type: string, label: string, analyzeType: boolean, index: number): Promise<BpaServiceObject> => {
+        try {
+            let count = 0;
+            let inputs = []
+            const outputs = []
+            for (const item of input.data) { //convert input.data to an array of strings //update, maximum is 5 for pii....5??
+                inputs.push(item)
+                if (count === 4) {
+                    input.data = inputs
+                    const piiItems = await this._recognizeMultiNoReturn(input, actions, type, label, analyzeType, index)
+                    for (const piiItem of piiItems) {
+                        for (const r of piiItem.results) {
+                            outputs.push(r)
+                        }
+                    }
+                    inputs = [];
+                    count = 0
+                }
+                count++
+            }
+            if (inputs.length > 0) { //do the remaining if less than 5
+                input.data = inputs
+                const piiItems = await this._recognizeMultiNoReturn(input, actions, type, label, analyzeType, index)
+                for (const piiItem of piiItems) {
+                    for (const r of piiItem.results) {
+                        outputs.push(r)
+                    }
+                }
+                inputs = [];
+                count = 0
+                count++
+            }
+
+            const results = input.aggregatedResults
+            type = 'piiStt'
+            results[type] = outputs
+            input.resultsIndexes.push({ index: index, name: type, type: type })
+            const result: BpaServiceObject = {
+                data: outputs,
+                type: type,
+                label: label,
+                bpaId: input.bpaId,
+                filename: input.filename,
+                pipeline: input.pipeline,
+                aggregatedResults: results,
+                resultsIndexes: input.resultsIndexes,
+                id: input.id,
+                vector: input.vector
+            }
+            return result
+        } catch (err) {
+            console.log(err)
+        }
+    }
+
     private _recognizeAsync = async (input: BpaServiceObject, actions: AnalyzeBatchAction[], type: string, label: string, analyzeType: boolean, index: number): Promise<BpaServiceObject> => {
         const client = new TextAnalysisClient(this._endpoint, new AzureKeyCredential(this._apikey));
-        let poller : AnalyzeBatchPoller
+        let poller: AnalyzeBatchPoller
         if (input.data.length === 0) {
             input.data = "no data"
         }
@@ -89,7 +213,8 @@ export class LanguageStudio {
             bpaId: input.bpaId,
             aggregatedResults: input.aggregatedResults,
             resultsIndexes: input.resultsIndexes,
-            id : input.id
+            id: input.id,
+            vector: input.vector
         }
     }
 
@@ -153,6 +278,103 @@ export class LanguageStudio {
             }]
 
         return await this._recognize(input, actions, 'recognizePiiEntities', 'recognizePiiEntities', true, index)
+    }
+
+    public piiToText = async (input: BpaServiceObject, index: number): Promise<BpaServiceObject> => {
+        let out = ""
+        for (const item of input.data.items) {
+            for (const document of item.results.documents) {
+                out += " " + document.redactedText
+            }
+        }
+
+        const results = input.aggregatedResults
+        input.aggregatedResults.piiToText = out
+        input.resultsIndexes.push({ index: index, name: "piiToText", type: "text" })
+        const result: BpaServiceObject = {
+            data: out,
+            type: 'text',
+            label: 'piiToText',
+            bpaId: input.bpaId,
+            filename: input.filename,
+            pipeline: input.pipeline,
+            aggregatedResults: results,
+            resultsIndexes: input.resultsIndexes,
+            id: input.id,
+            vector: input.vector
+        }
+        return result
+
+    }
+
+    public piiStt = async (input: BpaServiceObject, index: number): Promise<BpaServiceObject> => {
+        const actions: AnalyzeBatchAction[] = [{
+            kind: AnalyzeActionNames.PiiEntityRecognition
+        }]
+
+        const listOfStrings = []
+        for (const item of input.data) { //convert input.data to an array of strings //update, maximum is 5....5??
+            listOfStrings.push(item.nBest[0].display)
+        }
+        input.data = listOfStrings
+        return await this._recognizeMulti(input, actions, 'recognizePiiEntities', 'recognizePiiEntities', true, index)
+        //return await this._recognizeMultiAsync(input, actions, 'recognizePiiEntities', 'recognizePiiEntities', true, index)
+    }
+
+
+
+    public formatKMAccelerator = async (input: BpaServiceObject, index: number): Promise<BpaServiceObject> => {
+
+        const messages: Message[] = []
+        for (const m of input.data) {
+            let out: Message = {
+                Id: "",
+                ReferenceId: "",
+                Value: "",
+                UserId: "",
+                EventType: "",
+                CustomProperties: "",
+                EventTime: ""
+            }
+
+            out.Id = input.data.id
+            out.ReferenceId = null,
+                out.Value = m.nBest[0].display
+            out.UserId = String(input.data.speaker)
+            out.EventType = (input.data.speaker === 0) ? "MessageFromUser" : "MessageFromBotOrAgent",
+                out.CustomProperties = JSON.stringify({
+                    offset: 0,
+                    duration: 0,
+                    offsetInTicks: 0,
+                    durationInTicks: 0
+                })
+
+            messages.push(out)
+
+        }
+
+        const out = { Messages: messages }
+
+        const results = input.aggregatedResults
+        input.aggregatedResults.formatKMAccelerator = out
+        input.resultsIndexes.push({ index: index, name: "formatKMAccelerator", type: "formatKMAccelerator" })
+        let result: BpaServiceObject = {
+            data: out,
+            type: 'formatKMAccelerator',
+            label: 'formatKMAccelerator',
+            bpaId: input.bpaId,
+            filename: input.filename,
+            pipeline: input.pipeline,
+            aggregatedResults: results,
+            resultsIndexes: input.resultsIndexes,
+            id: input.id,
+            vector: input.vector
+        }
+
+        result["Messages"] = messages
+
+        return result
+
     }
 
     public extractKeyPhrases = async (input: BpaServiceObject, index: number): Promise<BpaServiceObject> => {
@@ -251,7 +473,8 @@ export class LanguageStudio {
             label: "summaryToText",
             aggregatedResults: results,
             resultsIndexes: input.resultsIndexes,
-            id: input.id
+            id: input.id,
+            vector: input.vector
         }
     }
 
@@ -268,8 +491,8 @@ export class LanguageStudio {
         const actions: AnalyzeBatchAction[] = [
             {
                 kind: "CustomEntityRecognition",
-                deploymentName : input.serviceSpecificConfig.deploymentName,
-                projectName : input.serviceSpecificConfig.projectName
+                deploymentName: input.serviceSpecificConfig.deploymentName,
+                projectName: input.serviceSpecificConfig.projectName
             }]
 
         return await this._recognize(input, actions, 'recognizeCustomEntities', 'recognizeCustomEntities', true, index)
@@ -279,8 +502,8 @@ export class LanguageStudio {
         const actions: AnalyzeBatchAction[] = [
             {
                 kind: "CustomSingleLabelClassification",
-                deploymentName : input.serviceSpecificConfig.deploymentName,
-                projectName : input.serviceSpecificConfig.projectName
+                deploymentName: input.serviceSpecificConfig.deploymentName,
+                projectName: input.serviceSpecificConfig.projectName
             }]
 
         return await this._recognize(input, actions, 'singleCategoryClassify', 'singleCategoryClassify', true, index)
@@ -290,8 +513,8 @@ export class LanguageStudio {
         const actions: AnalyzeBatchAction[] = [
             {
                 kind: "CustomMultiLabelClassification",
-                deploymentName : input.serviceSpecificConfig.deploymentName,
-                projectName : input.serviceSpecificConfig.projectName
+                deploymentName: input.serviceSpecificConfig.deploymentName,
+                projectName: input.serviceSpecificConfig.projectName
             }]
 
         return await this._recognize(input, actions, 'multiCategoryClassify', 'multiCategoryClassify', true, index)
@@ -327,8 +550,8 @@ export class LanguageStudio {
         const actions: AnalyzeBatchAction[] = [
             {
                 kind: "CustomEntityRecognition",
-                deploymentName : input.serviceSpecificConfig.deploymentName,
-                projectName : input.serviceSpecificConfig.projectName
+                deploymentName: input.serviceSpecificConfig.deploymentName,
+                projectName: input.serviceSpecificConfig.projectName
             }]
 
         return await this._recognizeAsync(input, actions, 'recognizeCustomEntities', 'recognizeCustomEntities', true, index)
@@ -338,8 +561,8 @@ export class LanguageStudio {
         const actions: AnalyzeBatchAction[] = [
             {
                 kind: "CustomSingleLabelClassification",
-                deploymentName : input.serviceSpecificConfig.deploymentName,
-                projectName : input.serviceSpecificConfig.projectName
+                deploymentName: input.serviceSpecificConfig.deploymentName,
+                projectName: input.serviceSpecificConfig.projectName
             }]
 
         return await this._recognizeAsync(input, actions, 'singleCategoryClassify', 'singleCategoryClassify', true, index)
@@ -349,8 +572,8 @@ export class LanguageStudio {
         const actions: AnalyzeBatchAction[] = [
             {
                 kind: "CustomMultiLabelClassification",
-                deploymentName : input.serviceSpecificConfig.deploymentName,
-                projectName : input.serviceSpecificConfig.projectName
+                deploymentName: input.serviceSpecificConfig.deploymentName,
+                projectName: input.serviceSpecificConfig.projectName
             }]
 
         return await this._recognizeAsync(input, actions, 'multiCategoryClassify', 'multiCategoryClassify', true, index)
